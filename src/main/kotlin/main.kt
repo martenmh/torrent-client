@@ -1,16 +1,33 @@
 import java.io.File
 import java.lang.IllegalArgumentException
-import java.net.URI
-import java.net.http.HttpClient
-import java.net.http.HttpRequest
 
-import java.time.Duration
-import java.net.http.HttpResponse.BodyHandlers
-
-import java.net.http.HttpResponse
 import java.nio.charset.Charset
 import java.nio.file.Files
+import java.io.ObjectInputStream
 
+import java.util.zip.GZIPInputStream
+
+import java.io.ByteArrayInputStream
+
+import java.io.IOException
+
+import java.io.ObjectOutputStream
+
+import java.util.zip.GZIPOutputStream
+
+import java.io.ByteArrayOutputStream
+
+
+inline fun ByteArray.consumeWhile(predicate: (Char) -> Boolean): Pair<ByteArray, ByteArray> {
+    for (index in this.indices) {
+        if (!predicate(this[index].toChar())) {
+            val consumed: ByteArray = this.copyOfRange(0, index)
+            val rest: ByteArray = this.copyOfRange(index, this.size)
+            return Pair(consumed, rest)
+        }
+    }
+    return Pair(ByteArray(0), ByteArray(0))
+}
 
 inline fun String.consumeWhile(predicate: (Char) -> Boolean): Pair<String, String> {
     for (index in this.indices) {
@@ -27,6 +44,12 @@ sealed class Either<out A, out B> {
     class Left<A>(val value: A) : Either<A, Nothing>()
     class Right<B>(val value: B) : Either<Nothing, B>()
 }
+
+inline fun <L, R, T> Either<L, R>.fold(left: (L) -> T, right: (R) -> T): T =
+    when (this) {
+        is Either.Left -> left(value)
+        is Either.Right -> right(value)
+    }
 
 fun filePanic(notFoundStr: String) {
     throw IllegalArgumentException("Error, 'info' has not been found in the .torrent file")
@@ -60,9 +83,12 @@ class MetaInfo {
                     val dict = bencodedData as BencodedDictionary
                     fileList.add(
                         FileInfo(
-                            length = dict.get<BencodedInt>("length")?.value ?: throw MissingRequiredString("length"),
+                            length = dict.get<BencodedInt>("length")?.value ?: throw MissingRequiredString(
+                                "length",
+                                dict
+                            ),
                             md5sum = dict.getString("md5"),
-                            path = dict.getListOf<String>("path") ?: throw MissingRequiredString("path")
+                            path = dict.getListOf<String>("path") ?: throw MissingRequiredString("path", dict)
                         )
                     )
                 }
@@ -78,11 +104,12 @@ class MetaInfo {
         constructor(dict: BencodedDictionary?) {
             if (dict == null) throw MissingRequiredString("info")
 
-            pieceLength = dict.get<BencodedInt>("piece length")?.value ?: throw MissingRequiredString("piece length")
-            pieces = dict.getString("pieces") ?: throw MissingRequiredString("pieces")
+            pieceLength =
+                dict.get<BencodedInt>("piece length")?.value ?: throw MissingRequiredString("piece length", dict)
+            pieces = dict.getString("pieces") ?: throw MissingRequiredString("pieces", dict)
             private = dict.get<BencodedInt>("private")?.value
 
-            if (dict.value.containsKey(BencodedString("path"))) {
+            if (dict.get<BencodedList>("files") != null) {
                 fileInfo = Either.Right(
                     MultipleFileInfo(
                         dict.getString("name")!!,
@@ -92,8 +119,8 @@ class MetaInfo {
             } else {
                 fileInfo = Either.Left(
                     SingleFileInfo(
-                        dict.getString("name") ?: throw MissingRequiredString("name"),
-                        dict.get<BencodedInt>("length")?.value ?: throw MissingRequiredString("length"),
+                        dict.getString("name") ?: throw MissingRequiredString("name", dict),
+                        dict.get<BencodedInt>("length")?.value ?: throw MissingRequiredString("length", dict),
                         dict.getString("md5")
                     )
                 )
@@ -114,7 +141,7 @@ class MetaInfo {
 
     constructor(data: BencodedDictionary) {
         println(data)
-        announce = data.getString("announce") ?: throw MissingRequiredString("announce")
+        announce = data.getString("announce") ?: throw MissingRequiredString("announce", data)
 
         comment = data.getString("comment")
         createdBy = data.getString("created by")
@@ -132,28 +159,46 @@ class MetaInfo {
     }
 }
 
-class MissingRequiredString(s: String) : Throwable() {
+class MissingRequiredString(message: String, val data: BencodedData? = null) : Exception(message) {
 }
 
 fun main(args: Array<String>) {
-    val b = object {
-        var length: Int = 0        // length of the file in bytes
-        var md5sum: String? = null // the (optional) MD5 sum of the file
-    }
 //    if (args.isEmpty())  = "tagalogenglishen00niggrich_archive.torrent"
-    val torrentFile = File("H:\\TorrentClient\\src\\main\\resources\\tagalogenglishen00niggrich_archive.torrent")
+    val torrentFile = File("H:\\TorrentClient\\src\\main\\resources\\elementsofcoordi00lone_archive.torrent")
+//    val torrentFile = File("H:\\TorrentClient\\src\\main\\resources\\sample.torrent")
     val reader = torrentFile.reader()
 
-    var input: String = reader.readLines().joinToString()
+    val input: ByteArray = Files.readAllBytes(torrentFile.toPath())
+
+//    println("input size: ${input.length}, binary size: ${Files.readAllBytes(torrentFile.toPath()).size}")
+    reader.close()
 //    var input = Files.readAllLines(torrentFile.toPath(), Charset.defaultCharset())
-    println(input)
+
     var decoder = BencodeDecoder()
     val output = decoder.decode(input)
     println(output)
 
-//    val metaInfo = MetaInfo(output as BencodedDictionary)
-//    println(metaInfo)
+    try {
+        val metaInfo = MetaInfo(output as BencodedDictionary)
+        println(metaInfo)
+        println(metaInfo.info.pieceLength)
+        println(metaInfo.info.fileInfo.fold(
+            {
+                println(it)
 
+            },
+            {
+                println(it.name)
+                println(it.files[0].length)
+
+            }
+        ))
+    } catch (missingString: MissingRequiredString) {
+        println("Missing required string: '${missingString.message}' in ${torrentFile.path}")
+        println(missingString.data)
+        missingString.printStackTrace()
+        println()
+    }
 //    val client = HttpClient.newBuilder()
 //        .version(HttpClient.Version.HTTP_1_1)
 //        .build()

@@ -1,7 +1,9 @@
 import java.lang.Exception
+import java.nio.charset.Charset
 
 open class BencodeDecoder() {
-    protected lateinit var input: String
+    protected lateinit var input: ByteArray
+    var decodingBinaryData: Boolean = false
 //    var output: BencodedData
 
 
@@ -9,7 +11,7 @@ open class BencodeDecoder() {
      * Consume the first character if it contains the correct type
      */
     protected fun consumeType(typeChar: Char): Boolean {
-        if (input.isNotEmpty() && input[0] == typeChar) {
+        if (input.isNotEmpty() && input[0] == typeChar.toByte()) {
             input = input.drop(1) // remove first character
             return true
         }
@@ -26,21 +28,23 @@ open class BencodeDecoder() {
 //        }
 //        return ""
 //    }
-
+    fun ByteArray.drop(n: Int): ByteArray {
+        return this.copyOfRange(n, this.size)
+    }
     /**
      * Consume a number
      */
     protected fun consumeNumber(): Long {
 
-        when(input[0]){
+        when(input[0].toChar()){
             '-' -> {
-                if(input[1] == '0' || input[1] == '-')
+                if(input[1].toChar() == '0' || input[1].toChar() == '-')
                     throw Exception("Expected valid number after negative sign, got ${input[1]} instead.")
                 input = input.drop(1) // consume sign
                 return -consumeNumber()
             }
             '0' -> {
-                if(input[1].isDigit())
+                if(input[1].toChar().isDigit())
                     throw Exception("Expected end of number after 0, got ${input[1]}.")
                 return 0
             }
@@ -48,7 +52,7 @@ open class BencodeDecoder() {
 
         input.consumeWhile { it.isDigit() }.also {
             input = it.second
-            return it.first.toLong()
+            return it.first.toString(Charset.defaultCharset()).toLong()
         }
     }
 
@@ -85,12 +89,13 @@ open class BencodeDecoder() {
      */
     protected fun decodeString(): BencodedString {
         val stringSize = consumeNumber()
-        if(input[0] != ':')
+        if(input[0] != ':'.toByte())
             throw Exception("Expected ':' after string size number, got ${input[0]} instead.")
-        println("length: ${input.length}, size: $stringSize")
-        val result = BencodedString(input.substring(1, stringSize.toInt()+1))
+        println("length: ${input.size}, size: $stringSize")
+        val result = BencodedString(input.copyOfRange(1, stringSize.toInt()+1).toString(Charset.defaultCharset()))
         println("decoded: $result")
-        input = input.substring(stringSize.toInt()+1) // consume string
+
+        input = input.copyOfRange(stringSize.toInt()+1, input.size) // consume string
         return result
     }
 
@@ -103,7 +108,7 @@ open class BencodeDecoder() {
             // input. // remove first char
             var decodedValue: BencodedData = BencodedInt(0)
             val listValue: MutableList<BencodedData> = mutableListOf()
-            while (input.isNotEmpty() && input[0] != 'e') {
+            while (input.isNotEmpty() && input[0] != 'e'.toByte()) {
                 decode(input).also { decodedValue = it }
                 println(decodedValue)
                 listValue.add(decodedValue)
@@ -125,7 +130,7 @@ open class BencodeDecoder() {
     protected fun decodeDictionary(): BencodedDictionary {
         if (consumeType('d')) {
             val resultMap: MutableMap<BencodedString, BencodedData> = mutableMapOf()
-            while (input[0] != 'e') {
+            while (input[0] != 'e'.toByte()) {
                 val name = decodeString()
                 val value = decode()
                 resultMap[name] = value
@@ -139,10 +144,10 @@ open class BencodeDecoder() {
     protected fun decode(): BencodedData {
         if (input.isNotEmpty()) {
             return when (val start = input[0]) {
-                'i' -> decodeInteger()
-                'l' -> decodeList()
-                'd' -> decodeDictionary()
-                in '0'..'9' -> decodeString()
+                'i'.toByte() -> decodeInteger()
+                'l'.toByte() -> decodeList()
+                'd'.toByte() -> decodeDictionary()
+                in '0'.toByte()..'9'.toByte() -> decodeString()
                 else -> throw Exception("Unexpected start of input: $start.")
             }
         }
@@ -155,7 +160,7 @@ open class BencodeDecoder() {
      *
      * @return the decoded data
      */
-    fun decode(input: String): BencodedData {
+    fun decode(input: ByteArray): BencodedData {
         this.input = input
         return decode()
     }

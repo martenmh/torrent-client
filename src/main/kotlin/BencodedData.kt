@@ -26,16 +26,21 @@ data class BencodedDictionary(
 
 //fun <T : BencodedData> getListOf(key: String) = (value.get
 
-/** Useful util functions for getting the necessary data from a string **/
+/** Useful dictionary util functions **/
+/**
+ * [key]
+ */
 fun BencodedDictionary.getString(key: String) = (value.get(BencodedString(key)) as BencodedString?)?.value
 
+/**
+ *
+ */
 @Suppress("UNCHECKED_CAST")
 fun <T : BencodedData> BencodedDictionary.get(key: String) = (value.get(BencodedString(key)) as T?)
 
 inline fun <reified T> BencodedDictionary.getListOf(key: String): List<T>? {
-
     return (value.get(BencodedString(key)) as BencodedList?)?.value?.map {
-        if(it.value !is T) throw Exception("Expected each element to be a <T>, got ${it.javaClass}")
+        if (it.value !is T) throw Exception("Expected each element to be a <T>, got ${it.javaClass}")
         it.value as T
     }
 }
