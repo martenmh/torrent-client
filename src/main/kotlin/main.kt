@@ -1,24 +1,139 @@
 import java.io.File
+import java.lang.IllegalArgumentException
+import java.net.URI
+import java.net.http.HttpClient
+import java.net.http.HttpRequest
+
+import java.time.Duration
+import java.net.http.HttpResponse.BodyHandlers
+
+import java.net.http.HttpResponse
+import java.nio.charset.Charset
+import java.nio.file.Files
+
+
+inline fun String.consumeWhile(predicate: (Char) -> Boolean): Pair<String, String> {
+    for (index in this.indices) {
+        if (!predicate(this[index])) {
+            val consumed = take(index)
+            val rest = drop(index)
+            return Pair(consumed, rest)
+        }
+    }
+    return Pair("", "")
+}
+
+sealed class Either<out A, out B> {
+    class Left<A>(val value: A) : Either<A, Nothing>()
+    class Right<B>(val value: B) : Either<Nothing, B>()
+}
+
+fun filePanic(notFoundStr: String) {
+    throw IllegalArgumentException("Error, 'info' has not been found in the .torrent file")
+}
 
 /**
- * Searches this list or its range for an element having the key returned by the specified [selector] function
- * equal to the provided [key] value using the binary search algorithm.
- * The list is expected to be sorted into ascending order according to the Comparable natural ordering of keys of its elements.
- * otherwise the result is undefined.
- * * asdioasjdi
- *  * sajdioasjd
- * If the list contains multiple elements with the specified [key], there is no guarantee which one will be found.
- *
- * `null` value is considered to be less than any non-null value.
- *
- * @return the index of the element with the specified [key], if it is contained in the list within the specified range;
- * otherwise, the inverted insertion point `(-insertion point - 1)`.
- * The insertion point is defined as the index at which the element should be inserted,
- * so that the list (or the specified subrange of list) still remains sorted.
- * @sample samples.collections.Collections.Lists.binarySearchByKey
- */
+ * The meta info contains all useful info read from the .torrent file
+ **/
+class MetaInfo {
+    class Info {
+        data class SingleFileInfo(
+            var name: String,  // filename
+            var length: Int = 0,        // length of the file in bytes
+            var md5sum: String? = null// the (optional) MD5 sum of the file)
+        )
 
+        data class FileInfo(
+            var length: Int = 0,
+            var md5sum: String? = null,
+            var path: List<String> = listOf()
+        )
 
+        class MultipleFileInfo {
+            var name: String
+            var files: List<FileInfo>
+
+            constructor(name: String, list: BencodedList) {
+                this.name = name
+                val fileList: MutableList<FileInfo> = mutableListOf()
+                for (bencodedData in list.value) {
+                    val dict = bencodedData as BencodedDictionary
+                    fileList.add(
+                        FileInfo(
+                            length = dict.get<BencodedInt>("length")?.value ?: throw MissingRequiredString("length"),
+                            md5sum = dict.getString("md5"),
+                            path = dict.getListOf<String>("path") ?: throw MissingRequiredString("path")
+                        )
+                    )
+                }
+                files = fileList.toList()
+            }
+        }
+
+        var fileInfo: Either<SingleFileInfo, MultipleFileInfo>
+        var pieceLength: Int = 0    // number of bytes in each piece
+        var pieces: String // concatenation of all 20-byte SHA1 hash values
+        var private: Int? = null    // if set to 1 the client must publish its
+
+        constructor(dict: BencodedDictionary?) {
+            if (dict == null) throw MissingRequiredString("info")
+
+            pieceLength = dict.get<BencodedInt>("piece length")?.value ?: throw MissingRequiredString("piece length")
+            pieces = dict.getString("pieces") ?: throw MissingRequiredString("pieces")
+            private = dict.get<BencodedInt>("private")?.value
+
+            if (dict.value.containsKey(BencodedString("path"))) {
+                fileInfo = Either.Right(
+                    MultipleFileInfo(
+                        dict.getString("name")!!,
+                        dict.get<BencodedList>("files")!!
+                    )
+                )
+            } else {
+                fileInfo = Either.Left(
+                    SingleFileInfo(
+                        dict.getString("name") ?: throw MissingRequiredString("name"),
+                        dict.get<BencodedInt>("length")?.value ?: throw MissingRequiredString("length"),
+                        dict.getString("md5")
+                    )
+                )
+            }
+
+        }
+    }
+
+    var info: Info
+    var announce: String
+
+    /** Optional metadata **/
+    var announceList: List<String>? = null
+    var creationDate: Int? = null
+    var comment: String? = null
+    var createdBy: String? = null
+    var encoding: String? = null
+
+    constructor(data: BencodedDictionary) {
+        println(data)
+        announce = data.getString("announce") ?: throw MissingRequiredString("announce")
+
+        comment = data.getString("comment")
+        createdBy = data.getString("created by")
+        encoding = data.getString("encoding")
+        announceList = data.getListOf<String>("key")
+//        announceList = data.get<BencodedList>("announce-list").value.map {
+//            if(it !is BencodedString) throw Exception("Expected each element to be a string, got ${it.javaClass}")
+//            it.value as String
+//        }
+
+        creationDate = data.get<BencodedInt>("creation date")?.value
+        println(data.get<BencodedDictionary>("info"))
+        info = Info(data.get<BencodedDictionary>("info"))
+
+    }
+}
+
+class MissingRequiredString(s: String) : Throwable() {
+}
 
 fun main(args: Array<String>) {
     val b = object {
