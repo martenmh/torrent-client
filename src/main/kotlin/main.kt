@@ -21,19 +21,46 @@ import java.io.File
 
 
 fun main(args: Array<String>) {
-    val b = "acegil"
-    var it = b.iterator()
-    it.next()
-    println(String(it.asSequence().toList().toCharArray()))
-//    for(i in 1..b.length){
-//
-//    }
-//    if (args.isEmpty()) args[0] = "tagalogenglishen00niggrich_archive.torrent"
-//    val torrentFile = File(args[0])
-//    val reader = torrentFile.bufferedReader()
-//    var input: List<String> = reader.readLines()
-//    var parser = BencodeParser(input)
-//    parser.decode()
+    val b = object {
+        var length: Int = 0        // length of the file in bytes
+        var md5sum: String? = null // the (optional) MD5 sum of the file
+    }
+//    if (args.isEmpty())  = "tagalogenglishen00niggrich_archive.torrent"
+    val torrentFile = File("H:\\TorrentClient\\src\\main\\resources\\tagalogenglishen00niggrich_archive.torrent")
+    val reader = torrentFile.reader()
 
-//    println(BencodeParser(input))
+    var input: String = reader.readLines().joinToString()
+//    var input = Files.readAllLines(torrentFile.toPath(), Charset.defaultCharset())
+    println(input)
+    var decoder = BencodeDecoder()
+    val output = decoder.decode(input)
+    println(output)
+
+//    val metaInfo = MetaInfo(output as BencodedDictionary)
+//    println(metaInfo)
+
+//    val client = HttpClient.newBuilder()
+//        .version(HttpClient.Version.HTTP_1_1)
+//        .build()
+//
+////        .followRedirects(HttpClient.Redirect.NORMAL)
+////        .connectTimeout(Duration.ofSeconds(20))
+////        .proxy(ProxySelector.of(InetSocketAddress("proxy.example.com", 80)))
+////        .authenticator(Authenticator.getDefault())
+////        .build()
+//    val request = HttpRequest.newBuilder()
+//        .uri(URI.create("http://foo.com/"))
+//        .build()
+//    client.sendAsync(request, BodyHandlers.ofString())
+//        .thenApply { obj: HttpResponse<String?> -> obj.body() }
+//        .thenAccept { x: String? -> println(x) }
+//        .join()
+//
+//    val response = client.send(request, BodyHandlers.ofString())
+//    println(response.statusCode())
+//    println(response.body())
+//
+//    val uri = URI.create(metaInfo.announce)
+
+//    println(output)
 }
