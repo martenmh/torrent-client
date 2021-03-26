@@ -17,6 +17,52 @@ open class BencodeDecoder(var input: ByteArray = byteArrayOf()) {
     }
 
     /**
+     * Get a specific encoded part of the [input]
+     * The [str] specifies the encoded value to return
+     *
+     * @return the encoded part
+     */
+    // TODO: way too complex and probably not too good for edge cases
+    fun getBencodedPart(str: String): ByteArray {
+        val startIndex = input.indexOf(str.toByteArray())
+        var endIndex = 0
+        var nested = 0
+        var inInt = false
+        var i = startIndex
+        while (i in startIndex until input.size) {
+            if(input[i] == 'i'.toByte()){
+                nested++
+                inInt = true
+            }
+            else if ("ld".toByteArray().contains(input[i])) nested++
+            else if (!inInt && input[i].toChar().isDigit()) {
+                // decode string size
+                var j = i + 1
+                while (input[j].toChar().isDigit()) j++ // go to end of number
+                val bl = input.copyOfRange(i, j).toString(Charset.defaultCharset())
+                i += bl.toInt()+bl.length
+            } else if (input[i] == 'e'.toByte()) {
+                if(inInt) inInt = false // this is the end of the int
+                nested--
+                if (nested == 0) {
+                    endIndex = i
+                    break
+                }
+            }
+            i++
+        }
+        if(endIndex == 0){
+            endIndex = input.size - 1
+            while(input[endIndex] == 'e'.toByte()) endIndex--
+            while(nested != 0){
+                nested--
+                endIndex++
+            }
+        }
+        return input.copyOfRange(startIndex + str.length, endIndex)
+    }
+
+    /**
      * Consume the first character if it contains the correct type
      * [typeChar] specifies the correct type to be consumed
      * @return true if the type character of the [input] is the same as [typeChar], otherwise false
