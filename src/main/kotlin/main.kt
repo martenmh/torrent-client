@@ -1,226 +1,172 @@
 import java.io.File
-import java.lang.IllegalArgumentException
+import java.io.UnsupportedEncodingException
+import java.lang.Exception
 
-import java.nio.charset.Charset
 import java.nio.file.Files
-import java.io.ObjectInputStream
 
-import java.util.zip.GZIPInputStream
+import java.lang.StringBuilder
+import java.net.URI
+import java.net.URLEncoder
+import java.net.http.HttpClient
+import java.net.http.HttpRequest
+import java.net.http.HttpResponse.BodyHandlers.ofString
+import java.nio.charset.Charset
+import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
+import java.security.NoSuchAlgorithmException
 
-import java.io.ByteArrayInputStream
+import java.math.BigInteger
+import kotlin.experimental.and
 
-import java.io.IOException
+import kotlin.experimental.or
 
-import java.io.ObjectOutputStream
-
-import java.util.zip.GZIPOutputStream
-
-import java.io.ByteArrayOutputStream
-
-
-inline fun ByteArray.consumeWhile(predicate: (Char) -> Boolean): Pair<ByteArray, ByteArray> {
-    for (index in this.indices) {
-        if (!predicate(this[index].toChar())) {
-            val consumed: ByteArray = this.copyOfRange(0, index)
-            val rest: ByteArray = this.copyOfRange(index, this.size)
-            return Pair(consumed, rest)
-        }
-    }
-    return Pair(ByteArray(0), ByteArray(0))
+@Throws(NoSuchAlgorithmException::class, UnsupportedEncodingException::class)
+fun sha1Hex(input: ByteArray): String? {
+    val md5 = MessageDigest.getInstance("SHA1")
+    val digest = md5.digest(input)
+    return digest.toHexString()
 }
 
-inline fun String.consumeWhile(predicate: (Char) -> Boolean): Pair<String, String> {
-    for (index in this.indices) {
-        if (!predicate(this[index])) {
-            val consumed = take(index)
-            val rest = drop(index)
-            return Pair(consumed, rest)
-        }
+val HEX_ARRAY = "0123456789ABCDEF".toCharArray()
+fun bytesToHex(bytes: ByteArray): String? {
+    val hexChars = CharArray(bytes.size * 2)
+    for (j in bytes.indices) {
+        val v = (bytes[j] and 0xFF.toByte()).toInt()
+        hexChars[j * 2] = HEX_ARRAY[v ushr 4]
+        hexChars[j * 2 + 1] = HEX_ARRAY[v and 0x0F]
     }
-    return Pair("", "")
+    return String(hexChars)
 }
 
-sealed class Either<out A, out B> {
-    class Left<A>(val value: A) : Either<A, Nothing>()
-    class Right<B>(val value: B) : Either<Nothing, B>()
-}
-
-inline fun <L, R, T> Either<L, R>.fold(left: (L) -> T, right: (R) -> T): T =
-    when (this) {
-        is Either.Left -> left(value)
-        is Either.Right -> right(value)
-    }
-
-fun filePanic(notFoundStr: String) {
-    throw IllegalArgumentException("Error, 'info' has not been found in the .torrent file")
-}
-
-/**
- * The meta info contains all useful info read from the .torrent file
- **/
-class MetaInfo {
-    class Info {
-        data class SingleFileInfo(
-            var name: String,  // filename
-            var length: Int = 0,        // length of the file in bytes
-            var md5sum: String? = null// the (optional) MD5 sum of the file)
-        )
-
-        data class FileInfo(
-            var length: Int = 0,
-            var md5sum: String? = null,
-            var path: List<String> = listOf()
-        )
-
-        class MultipleFileInfo {
-            var name: String
-            var files: List<FileInfo>
-
-            constructor(name: String, list: BencodedList) {
-                this.name = name
-                val fileList: MutableList<FileInfo> = mutableListOf()
-                for (bencodedData in list.value) {
-                    val dict = bencodedData as BencodedDictionary
-                    fileList.add(
-                        FileInfo(
-                            length = dict.get<BencodedInt>("length")?.value ?: throw MissingRequiredString(
-                                "length",
-                                dict
-                            ),
-                            md5sum = dict.getString("md5"),
-                            path = dict.getListOf<String>("path") ?: throw MissingRequiredString("path", dict)
-                        )
-                    )
-                }
-                files = fileList.toList()
-            }
-        }
-
-        var fileInfo: Either<SingleFileInfo, MultipleFileInfo>
-        var pieceLength: Int = 0    // number of bytes in each piece
-        var pieces: String // concatenation of all 20-byte SHA1 hash values
-        var private: Int? = null    // if set to 1 the client must publish its
-
-        constructor(dict: BencodedDictionary?) {
-            if (dict == null) throw MissingRequiredString("info")
-
-            pieceLength =
-                dict.get<BencodedInt>("piece length")?.value ?: throw MissingRequiredString("piece length", dict)
-            pieces = dict.getString("pieces") ?: throw MissingRequiredString("pieces", dict)
-            private = dict.get<BencodedInt>("private")?.value
-
-            if (dict.get<BencodedList>("files") != null) {
-                fileInfo = Either.Right(
-                    MultipleFileInfo(
-                        dict.getString("name")!!,
-                        dict.get<BencodedList>("files")!!
-                    )
-                )
-            } else {
-                fileInfo = Either.Left(
-                    SingleFileInfo(
-                        dict.getString("name") ?: throw MissingRequiredString("name", dict),
-                        dict.get<BencodedInt>("length")?.value ?: throw MissingRequiredString("length", dict),
-                        dict.getString("md5")
-                    )
-                )
-            }
-
-        }
-    }
-
-    var info: Info
-    var announce: String
-
-    /** Optional metadata **/
-    var announceList: List<String>? = null
-    var creationDate: Int? = null
-    var comment: String? = null
-    var createdBy: String? = null
-    var encoding: String? = null
-
-    constructor(data: BencodedDictionary) {
-        println(data)
-        announce = data.getString("announce") ?: throw MissingRequiredString("announce", data)
-
-        comment = data.getString("comment")
-        createdBy = data.getString("created by")
-        encoding = data.getString("encoding")
-        announceList = data.getListOf<String>("key")
-//        announceList = data.get<BencodedList>("announce-list").value.map {
-//            if(it !is BencodedString) throw Exception("Expected each element to be a string, got ${it.javaClass}")
-//            it.value as String
-//        }
-
-        creationDate = data.get<BencodedInt>("creation date")?.value
-        println(data.get<BencodedDictionary>("info"))
-        info = Info(data.get<BencodedDictionary>("info"))
-
+fun ByteArray.toHexString(): String {
+    return this.joinToString("") {
+        java.lang.String.format("%02x", it)
     }
 }
 
-class MissingRequiredString(message: String, val data: BencodedData? = null) : Exception(message) {
+fun sha1Hash(toHash: String): String? {
+    var hash: String? = null
+    try {
+        val digest = MessageDigest.getInstance("SHA-1")
+        var bytes = toHash.toByteArray(charset("UTF-8"))
+        digest.update(bytes, 0, bytes.size)
+        return String.format("%040x", BigInteger(1, digest.digest()))
+    } catch (e: NoSuchAlgorithmException) {
+        e.printStackTrace()
+    } catch (e: UnsupportedEncodingException) {
+        e.printStackTrace()
+    }
+    return hash
+}
+
+
+/** Lookup table: character for a half-byte  */
+val CHAR_FOR_BYTE = charArrayOf('0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F')
+
+/** Encode byte data as a hex string... hex chars are UPPERCASE */
+fun encode(data: ByteArray?): String? {
+    if (data == null || data.isEmpty()) {
+        return ""
+    }
+    val store = CharArray(data.size * 2)
+    for (i in data.indices) {
+        val `val`: Int = (data[i] and 0xFF.toByte()).toInt()
+        val charLoc = i shl 1
+        store[charLoc] = CHAR_FOR_BYTE[`val` ushr 4]
+        store[charLoc + 1] = CHAR_FOR_BYTE[`val` and 0x0F]
+    }
+    return String(store)
+}
+
+enum class Event {
+    STARTED,
+    STOPPED,
+    COMPLETED
+}
+
+@Throws(Exception::class)
+fun encodeURL(hexString: String?): String? {
+    if (hexString == null || hexString.isEmpty) {
+        return ""
+    }
+    if (hexString.length % 2 != 0) {
+        throw Exception("String is not hex, length NOT divisible by 2: $hexString")
+    }
+    val len = hexString.length
+    val output = CharArray(len + len / 2)
+    var i = 0
+    var j = 0
+    while (i < len) {
+        output[j++] = '%'
+        output[j++] = hexString[i++]
+        output[j++] = hexString[i++]
+    }
+    return String(output)
 }
 
 fun main(args: Array<String>) {
-//    if (args.isEmpty())  = "tagalogenglishen00niggrich_archive.torrent"
-    val torrentFile = File("H:\\TorrentClient\\src\\main\\resources\\elementsofcoordi00lone_archive.torrent")
-//    val torrentFile = File("H:\\TorrentClient\\src\\main\\resources\\sample.torrent")
-    val reader = torrentFile.reader()
 
+    println(sha1Hex("aff".toByteArray()))
+
+//    val torrentFile = File("H:\\TorrentClient\\src\\main\\resources\\sample.torrent")
+//    val torrentFile = File("H:\\TorrentClient\\src\\main\\resources\\antiX-13.2_386-full.iso.torrent")
+    val torrentFile = File("H:\\TorrentClient\\src\\main\\resources\\elementsofcoordi00lone_archive.torrent")
+
+    val reader = torrentFile.reader()
     val input: ByteArray = Files.readAllBytes(torrentFile.toPath())
 
-//    println("input size: ${input.length}, binary size: ${Files.readAllBytes(torrentFile.toPath()).size}")
     reader.close()
-//    var input = Files.readAllLines(torrentFile.toPath(), Charset.defaultCharset())
 
-    var decoder = BencodeDecoder()
+    var decoder = BencodeDecoder(input)
+    val encodedInfo = decoder.getBencodedPart("info")
+    println("found encoded info: ${encodedInfo.toString(Charset.defaultCharset())}")
     val output = decoder.decode(input)
-    println(output)
-
+    println("decoded file")
     try {
+        val info_hash = encodeURL(sha1Hex(encodedInfo))
+        val event: Event = Event.STARTED
+        val peer_id = "kf99s08a09895s1s7642"
         val metaInfo = MetaInfo(output as BencodedDictionary)
-        println(metaInfo)
-        println(metaInfo.info.pieceLength)
-        println(metaInfo.info.fileInfo.fold(
-            {
-                println(it)
 
-            },
-            {
-                println(it.name)
-                println(it.files[0].length)
+        val client = HttpClient.newBuilder().build()
+        val uriBase = URI(metaInfo.announce)
 
-            }
-        ))
-    } catch (missingString: MissingRequiredString) {
+
+        val uriString = "${metaInfo.announce}?info_hash=${info_hash}&" +
+                "peer_id=${peer_id}&" +
+                "port=${uriBase.port}&" +
+                "uploaded=${0}&" +
+                "downloaded=${0}&" +
+                "left=${metaInfo.info.pieceLength}&" +
+                "compact${0}&" +
+                "no_peed_id&" +
+                "event=${event.toString().toLowerCase()}"
+        val trackerURI = URI(uriString)
+        val scrapeURI = URI(uriString.replace("announce", "scrape"))
+        // https://wiki.theory.org/BitTorrentSpecification
+        val trackerRequest = HttpRequest.newBuilder()
+            .GET()
+            .uri(trackerURI)
+            .build()
+
+        val scrapeRequest = HttpRequest.newBuilder()
+            .GET()
+            .uri(scrapeURI)
+            .build()
+
+        println("Sending response!")
+        val trackerResponse = client.send(trackerRequest, ofString())
+        println("response: $trackerResponse")
+        println(trackerResponse.headers())
+        println(trackerResponse.body())
+
+        val decodedResponse = decoder.decode(trackerResponse.body().toByteArray(Charset.defaultCharset()))
+        println(decodedResponse)
+
+    } catch (missingString: MissingRequiredStringException) {
         println("Missing required string: '${missingString.message}' in ${torrentFile.path}")
         println(missingString.data)
         missingString.printStackTrace()
         println()
     }
-//    val client = HttpClient.newBuilder()
-//        .version(HttpClient.Version.HTTP_1_1)
-//        .build()
-//
-////        .followRedirects(HttpClient.Redirect.NORMAL)
-////        .connectTimeout(Duration.ofSeconds(20))
-////        .proxy(ProxySelector.of(InetSocketAddress("proxy.example.com", 80)))
-////        .authenticator(Authenticator.getDefault())
-////        .build()
-//    val request = HttpRequest.newBuilder()
-//        .uri(URI.create("http://foo.com/"))
-//        .build()
-//    client.sendAsync(request, BodyHandlers.ofString())
-//        .thenApply { obj: HttpResponse<String?> -> obj.body() }
-//        .thenAccept { x: String? -> println(x) }
-//        .join()
-//
-//    val response = client.send(request, BodyHandlers.ofString())
-//    println(response.statusCode())
-//    println(response.body())
-//
-//    val uri = URI.create(metaInfo.announce)
-
-//    println(output)
 }
