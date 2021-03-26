@@ -21,25 +21,25 @@ data class BencodedList(
 ) : BencodedData()
 
 data class BencodedDictionary(
-    override val value: Map<BencodedString, BencodedData>
+    override val value: Map<String, BencodedData>
 ) : BencodedData()
 
 //fun <T : BencodedData> getListOf(key: String) = (value.get
 
 /** Useful dictionary util functions **/
 /**
- * [key]
+ * Get a string from the value of the [key]
  */
-fun BencodedDictionary.getString(key: String) = (value.get(BencodedString(key)) as BencodedString?)?.value
+fun BencodedDictionary.getString(key: String) = (value[key] as BencodedString?)?.value
 
 /**
  *
  */
 @Suppress("UNCHECKED_CAST")
-fun <T : BencodedData> BencodedDictionary.get(key: String) = (value.get(BencodedString(key)) as T?)
+fun <T : BencodedData> BencodedDictionary.get(key: String) = (value.get(key) as T?)
 
 inline fun <reified T> BencodedDictionary.getListOf(key: String): List<T>? {
-    return (value.get(BencodedString(key)) as BencodedList?)?.value?.map {
+    return (value.get(key) as BencodedList?)?.value?.map {
         if (it.value !is T) throw Exception("Expected each element to be a <T>, got ${it.javaClass}")
         it.value as T
     }
