@@ -1,3 +1,6 @@
+import bencode.*
+import utils.Either
+import utils.fold
 
 /**
  * The meta info contains all useful info read from the .torrent file
@@ -108,7 +111,6 @@ class MetaInfo {
 //        }
 
         creationDate = data.get<BencodedInt>("creation date")?.value
-        println(data.get<BencodedDictionary>("info"))
         info = Info(data.get<BencodedDictionary>("info"))
 
     }
