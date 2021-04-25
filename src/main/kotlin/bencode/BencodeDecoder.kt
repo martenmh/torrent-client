@@ -1,7 +1,17 @@
+package bencode
+
+import utils.*
+import peer.*
+import utils.Log
+
 import java.lang.Exception
 import java.nio.charset.Charset
 
-open class BencodeDecoder(var input: ByteArray = byteArrayOf()) {
+/**
+ * [input]
+ * [nested]
+ */
+open class BencodeDecoder(var input: ByteArray = byteArrayOf(), var nested: Int = 0) {
 
     /**
      * Initialization of the decoding process
@@ -30,19 +40,18 @@ open class BencodeDecoder(var input: ByteArray = byteArrayOf()) {
         var inInt = false
         var i = startIndex
         while (i in startIndex until input.size) {
-            if(input[i] == 'i'.toByte()){
+            if (input[i] == 'i'.toByte()) {
                 nested++
                 inInt = true
-            }
-            else if ("ld".toByteArray().contains(input[i])) nested++
+            } else if ("ld".toByteArray().contains(input[i])) nested++
             else if (!inInt && input[i].toChar().isDigit()) {
                 // decode string size
                 var j = i + 1
                 while (input[j].toChar().isDigit()) j++ // go to end of number
                 val bl = input.copyOfRange(i, j).toString(Charset.defaultCharset())
-                i += bl.toInt()+bl.length
+                i += bl.toInt() + bl.length
             } else if (input[i] == 'e'.toByte()) {
-                if(inInt) inInt = false // this is the end of the int
+                if (inInt) inInt = false // this is the end of the int
                 nested--
                 if (nested == 0) {
                     endIndex = i
@@ -51,14 +60,17 @@ open class BencodeDecoder(var input: ByteArray = byteArrayOf()) {
             }
             i++
         }
-        if(endIndex == 0){
-            endIndex = input.size - 1
-            while(input[endIndex] == 'e'.toByte()) endIndex--
-            while(nested != 0){
-                nested--
-                endIndex++
-            }
-        }
+        Log.debug("", "$endIndex")
+        endIndex = findPossibleEnd()
+//        if (endIndex == 0) {
+//            endIndex = input.size - 1
+//            while (input[endIndex] == 'e'.toByte()) endIndex--
+//            while (nested != 0) {
+//                nested--
+//                endIndex++
+//            }
+//        }
+        Log.debug("", "${startIndex} + ${str.length}, ${endIndex}")
         return input.copyOfRange(startIndex + str.length, endIndex)
     }
 
@@ -69,29 +81,46 @@ open class BencodeDecoder(var input: ByteArray = byteArrayOf()) {
      */
     protected fun consumeType(typeChar: Char): Boolean {
         if (input.isNotEmpty() && input[0] == typeChar.toByte()) {
-            input = input.drop(1) // remove first character
+            nested++
+            consume() // remove first character
             return true
         }
         return false
     }
 
-    protected fun consumeEnd() = consumeType('e')
+    /**
+     * Consume [n] amount of characters from the input
+     */
+    protected fun consume(n: Int = 1) {
+        if (n > input.size) throw Exception("Tried to consume $n ${if (n == 1) "character" else "characters"} while input size is ${input.size}.")
+        input = input.drop(1)
+    }
+
+    protected fun consumeEnd() {
+        if (input.isNotEmpty() && input[0] == 'e'.toByte()) {
+            nested--
+            consume()
+            if (nested < 0) {
+                throw Exception("nested is smaller than 0")
+            }
+        }
+    }
 
     /**
      * Consume a number
      */
     protected fun consumeNumber(): Long {
-
         when (input[0].toChar()) {
             '-' -> {
                 if (input[1].toChar() == '0' || input[1].toChar() == '-')
                     throw InvalidNumberException("Expected valid number after negative sign, got ${input[1]} instead.")
-                input = input.drop(1) // consume sign
+                consume() // consume sign
                 return -consumeNumber()
             }
             '0' -> {
                 if (input[1].toChar().isDigit())
                     throw InvalidNumberException("Expected end of number after 0, got ${input[1]}.")
+                consume() // consume 0
                 return 0
             }
         }
@@ -117,33 +146,46 @@ open class BencodeDecoder(var input: ByteArray = byteArrayOf()) {
         return BencodedInt(0)
     }
 
-    open fun countLines(str: String?): Int {
-        if (str == null || str.isEmpty) {
-            return 0
-        }
-        var lines = 1
-        var pos = 0
-        while (str.indexOf(System.lineSeparator(), pos) + 1.also { pos = it } != 0) {
-            lines++
-        }
-        return lines
-    }
-
     /**
      * * Example: 4: spam represents the string "spam"
      * * Example: 0: represents the empty string ""
      */
     protected fun decodeString(): BencodedString {
         val stringSize = consumeNumber()
-        if (input[0] != ':'.toByte())
-            throw Exception("Expected ':' after string size number, got ${input[0]} instead.")
-        println("length: ${input.size}, size: $stringSize")
-        val result = BencodedString(input.copyOfRange(1, stringSize.toInt() + 1).toString(Charset.defaultCharset()))
-        println("decoded: $result")
+        if (input[0] != ':'.toByte()) {
+            throw UnexpectedByteException(
+                "Expected ':, ${':'.toByte()}' after string size number ${stringSize}, got ${input[0]}, ${input[0].toChar()} instead.",
+                input
+            )
+        }
+        var endIndex = stringSize.toInt() + 1
+        Log.debug("", "length: ${input.size}, size: $endIndex")
+        if (endIndex > input.size) {
+            // warning! string size 'stringSize + 1' is larger than the actual input size
 
-        input = input.copyOfRange(stringSize.toInt() + 1, input.size) // consume string
-        println("length: ${input.size}")
+            endIndex = findPossibleEnd()
+        }
+        val result = BencodedString(input.copyOfRange(1, endIndex).toString(Charset.defaultCharset()))
+        Log.debug("", "decoded: $result")
+
+        input = input.copyOfRange(endIndex, input.size) // consume string
+
+        Log.debug("", "length: ${input.size}")
         return result
+    }
+
+    private fun findPossibleEnd(): Int {
+        var endIndex = input.size - 1
+        var tmpNested = nested
+        if (nested > 0) {
+            // find last 'e'
+            while (tmpNested > 0 && endIndex > 0) {
+                if (input[endIndex] == 'e'.toByte())
+                    tmpNested--
+                endIndex--
+            }
+        }
+        return endIndex + 1
     }
 
     /**
@@ -152,13 +194,11 @@ open class BencodeDecoder(var input: ByteArray = byteArrayOf()) {
      */
     protected fun decodeList(): BencodedList {
         if (consumeType('l')) {
-            // input. // remove first char
             var decodedValue: BencodedData = BencodedInt(0)
             val listValue: MutableList<BencodedData> = mutableListOf()
             while (input.isNotEmpty() && input[0] != 'e'.toByte()) {
-                println("list")
                 decode().also { decodedValue = it }
-                println(decodedValue)
+                Log.debug("", "decoded: $decodedValue")
                 listValue.add(decodedValue)
             }
             consumeEnd()
@@ -178,12 +218,11 @@ open class BencodeDecoder(var input: ByteArray = byteArrayOf()) {
     protected fun decodeDictionary(): BencodedDictionary {
         if (consumeType('d')) {
             val resultMap: MutableMap<String, BencodedData> = mutableMapOf()
-            while (input[0] != 'e'.toByte()) {
-                println(input[0].toChar())
+            while (input.isNotEmpty() && input[0] != 'e'.toByte()) {
                 val name = decodeString().value
-                println("value")
+                Log.debug("", "decoded name: $name")
                 val value = decode()
-                println("decoded")
+                Log.debug("", "decoded value: $value")
                 resultMap[name] = value
             }
             consumeEnd()
@@ -194,7 +233,6 @@ open class BencodeDecoder(var input: ByteArray = byteArrayOf()) {
 
     protected fun decode(): BencodedData {
         if (input.isNotEmpty()) {
-            println(input[0].toChar())
             return when (val start = input[0].toChar()) {
                 'i' -> decodeInteger()
                 'l' -> decodeList()
@@ -203,6 +241,6 @@ open class BencodeDecoder(var input: ByteArray = byteArrayOf()) {
                 else -> throw Exception("Unexpected start of input: $start.")
             }
         }
-        throw Exception("Error");
+        throw Exception("Tried to decode input but input is empty")
     }
 }

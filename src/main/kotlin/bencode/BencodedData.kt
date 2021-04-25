@@ -1,3 +1,5 @@
+package bencode
+
 /**
  * A sum type that encompasses all Bencode data types
  */
