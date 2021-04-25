@@ -3,9 +3,9 @@ package peer
 import utils.toBytes
 import utils.toInt
 
-enum class Message : Byte {
-
-}
+//enum class Message : Byte {
+//
+//}
 
 class PeerMessage {
     var len: Int = 1;

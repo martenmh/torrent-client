@@ -16,7 +16,6 @@ import java.net.http.HttpResponse.BodyHandlers.ofByteArray
 import kotlin.math.absoluteValue
 import bencode.*
 import kotlin.concurrent.thread
-import kotlinx.coroutines.*
 import peer.Peer
 import utils.Log
 import utils.*
@@ -44,7 +43,7 @@ fun main(args: Array<String>) {
     val input: ByteArray = readContentIntoByteArray(torrentFile)!!
 
     val decoder = BencodeDecoder()
-    val output = decoder.decodee(input)
+    val output = decoder.decode(input)
 
     val encoder = BencodeEncoder()
     val info: BencodedData = (output as BencodedDictionary).get<BencodedDictionary>("info") as BencodedData
