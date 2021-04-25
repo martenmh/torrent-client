@@ -1,11 +1,22 @@
 import org.junit.jupiter.api.Assertions
-import org.junit.jupiter.api.Assumptions
-import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
 import java.nio.charset.Charset
-import kotlin.test.assertEquals
 
 class BencodeTest : BencodeDecoder() {
+
+    @Test
+    fun `Encode Test`() {
+        DEBUG = true
+        val str = "d3:cow3:moo4:spam4:eggse"
+
+        val bytes = str.toByteArray(Charset.defaultCharset())
+        val decoder = BencodeDecoder()
+        val decoded = decoder.decode(bytes)
+        val encoder = BencodeEncoder()
+        Assertions.assertArrayEquals(encoder.encode(decoded), bytes)
+
+    }
+
     @Test
     fun `Get Bencoded Part`() {
         val sampleTorrent =
@@ -18,8 +29,10 @@ class BencodeTest : BencodeDecoder() {
         Assertions.assertEquals(encodedPieceLength, "i65536e")
 
         val encodedInfo = decoder.getBencodedPart("info").toString(Charset.defaultCharset())
-        Assertions.assertEquals("d6:lengthi20e4:name10:sample.txt12:piece lengthi65536e6:pieces20:\\\\��R�\\n\" +\n\"��x\\u0005�\\u0004d�� ���7:privatei1ee",
-            encodedInfo)
+        Assertions.assertEquals(
+            "d6:lengthi20e4:name10:sample.txt12:piece lengthi65536e6:pieces20:\\\\��R�\\n\" +\n\"��x\\u0005�\\u0004d�� ���7:privatei1ee",
+            encodedInfo
+        )
     }
 
     @Test
@@ -53,18 +66,17 @@ class BencodeTest : BencodeDecoder() {
 
         // { "publisher" => "bob", "publisher-webpage" => "www.example.com", "publisher.location" => "home" }
         value = decodeDict("d9:publisher3:bob17:publisher-webpage15:www.example.com18:publisher.location4:homee")
+        val testCase = { key: String, expected: String ->
+            Assertions.assertTrue(value.containsKey(key))
+            Assertions.assertTrue(value[key] is BencodedString)
+            Assertions.assertEquals(expected, value[key]?.value)
+        }
         // "publisher" => "bob"
-        Assertions.assertTrue(value.containsKey("publisher"))
-        Assertions.assertTrue(value["publisher"] is BencodedString)
-        Assertions.assertEquals("bob", value["publisher"]?.value)
+        testCase("publisher", "bob")
         // "publisher-webpage" => "www.example.com"
-        Assertions.assertTrue(value.containsKey("publisher-webpage"))
-        Assertions.assertTrue(value["publisher-webpage"] is BencodedString)
-        Assertions.assertEquals("www.example.com", value["publisher"]?.value)
+        testCase("publisher-webpage", "www.example.com")
         // "publisher.location" => "home"
-        Assertions.assertTrue(value.containsKey("publisher.location"))
-        Assertions.assertTrue(value["publisher.location"] is BencodedString)
-        Assertions.assertEquals("home", value["publisher"]?.value)
+        testCase("publisher.location", "home")
 
         // {}
         value = decodeDict("de")
@@ -91,7 +103,7 @@ class BencodeTest : BencodeDecoder() {
 
     @Test
     fun `Decode Bencode String`() {
-        val input = "8:announce".toByteArray()
+        input = "8:announce".toByteArray()
         val decodedData = decodeString()
         Assertions.assertEquals(8, decodedData.value.length)
         Assertions.assertEquals("announce", decodedData.value)
@@ -122,6 +134,10 @@ class BencodeTest : BencodeDecoder() {
         } catch (e: Exception) {
             println(e.message)
         }
+    }
+
+    fun `Test too long string Size`() {
+
     }
 
     @Test
