@@ -45,13 +45,12 @@ fun main(args: Array<String>) {
     val decoder = BencodeDecoder()
     val output = decoder.decode(input)
 
-    val encoder = BencodeEncoder()
-    val info: BencodedData = (output as BencodedDictionary).get<BencodedDictionary>("info") as BencodedData
+//    val encoder = BencodeEncoder()
+//    val info: BencodedData = (output as BencodedDictionary).get<BencodedDictionary>("info") as BencodedData
 
     val encodedInfo2 = decoder.getBencodedPart("info")
-    val encodedInfo = encoder.encode(info)
 
-    // 4f4d664043
+
     try {
         val info_hash = encodeURL(sha1Hex(encodedInfo2))
 
@@ -79,7 +78,6 @@ fun main(args: Array<String>) {
         "event=${event.toString().toLowerCase()}"
         val trackerURI = URI(uriString)
         val scrapeURI = URI(uriString.replace("announce", "scrape"))
-        // https://wiki.theory.org/BitTorrentSpecification
 
         val trackerRequest = HttpRequest.newBuilder()
             .GET()
@@ -96,13 +94,11 @@ fun main(args: Array<String>) {
 
 
         val decodedResponse = decoder.decode(trackerResponse.body())
-        val bytes = decoder.getBencodedPart("peers")
 
-        var peerList = mutableListOf<Peer>()
         val peers = (decodedResponse as BencodedDictionary).value["peers"]
         val ha = "BitTorrent protocol"
         Log.debug("", "Byte representation size: ${ha.toByteArray(Charset.defaultCharset()).size}")
-        val digest = sha1Hex(encodedInfo)!!.toByteArray(Charset.defaultCharset())
+
         val infoHash = sha1Hash(encodedInfo2)!!
         val handshake: ByteArray =
             byteArrayOf(19.toByte()) + ha.toByteArray(Charset.defaultCharset()) + ByteArray(8) + infoHash + peer_id.toByteArray(
@@ -218,21 +214,4 @@ fun handlePeer(peer: Peer) {
 //    tcpConnection.send(handshake)
     tcpConnection.recv()
 
-}
-
-private fun ByteArray.contains(element: ByteArray): Boolean {
-    for (index in this.indices) {
-        // find first byte
-        if (this[index] == element[0]) {
-            // check if all bytes correspond
-            for (elementIndex in element.indices) {
-                // if any byte does not correspond return false
-                if (this[index + elementIndex] != element[elementIndex]) {
-                    return false
-                }
-            }
-            return true
-        }
-    }
-    return false
 }

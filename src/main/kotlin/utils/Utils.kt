@@ -187,3 +187,19 @@ fun Int.toBytes(): ByteArray {
     return bytes
 }
 
+fun ByteArray.contains(element: ByteArray): Boolean {
+    for (index in this.indices) {
+        // find first byte
+        if (this[index] == element[0]) {
+            // check if all bytes correspond
+            for (elementIndex in element.indices) {
+                // if any byte does not correspond return false
+                if (this[index + elementIndex] != element[elementIndex]) {
+                    return false
+                }
+            }
+            return true
+        }
+    }
+    return false
+}
