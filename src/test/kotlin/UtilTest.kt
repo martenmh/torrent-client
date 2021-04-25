@@ -22,10 +22,10 @@ class UtilTest {
     @Test
     fun `Test SHA1 Hash`(){
         val value = "Hello World!"
-        val res = sha1Hash(value)
+        val res = sha1Hash(value.toByteArray())
 
         Assertions.assertNotNull(res)
-        Assertions.assertEquals("2EF7BDE608CE5404E97D5F042F95F89F1C232871".toLowerCase(), res?.toLowerCase())
+        Assertions.assertEquals("2EF7BDE608CE5404E97D5F042F95F89F1C232871".toLowerCase(), res!!.toHexString().toLowerCase())
     }
 
     @Test
